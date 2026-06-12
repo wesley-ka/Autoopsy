@@ -14,3 +14,6 @@ chat_id.txt
 
 # Private documentation
 CONFIG_GUIDE.md
+
+# macOS metadata
+.DS_Store
