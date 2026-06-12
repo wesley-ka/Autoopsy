@@ -70,7 +70,7 @@ async def lifespan(app: FastAPI):
                 f"{restore_link}"
             )
             bot.set_my_short_description(
-                f"SRE bot. Restore link is inside description."
+                f"SRE Bot. Click to restore: {restore_link}"
             )
             
         logger.info("Bot commands and descriptions registered successfully.")
