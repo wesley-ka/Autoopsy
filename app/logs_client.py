@@ -126,61 +126,7 @@ class RenderClient:
             )
         return "[ERROR] Failed to retrieve live logs from Render backend. Please verify your Render API key and Service ID configuration."
 
-    def calculate_metrics_from_logs(self, logs: str) -> dict:
-        """
-        Parses logs to calculate response code ratios, and provides simulated resource usage.
-        """
-        # Parse logs for status codes
-        total_requests = 0
-        codes = {"2xx": 0, "3xx": 0, "4xx": 0, "5xx": 0}
-        
-        import re
-        status_pattern = re.compile(r'\b(2\d{2}|3\d{2}|4\d{2}|5\d{2})\b')
-        for line in logs.splitlines():
-            matches = status_pattern.findall(line)
-            if matches:
-                for match in matches:
-                    total_requests += 1
-                    prefix = match[0]
-                    if prefix == "2":
-                        codes["2xx"] += 1
-                    elif prefix == "3":
-                        codes["3xx"] += 1
-                    elif prefix == "4":
-                        codes["4xx"] += 1
-                    elif prefix == "5":
-                        codes["5xx"] += 1
-        
-        # Calculate ratios
-        ratios = {}
-        if total_requests > 0:
-            for k, v in codes.items():
-                ratios[k] = round((v / total_requests) * 100, 1)
-        else:
-            if config.ENABLE_MOCK_FALLBACK:
-                ratios = {"2xx": 99.1, "3xx": 0.5, "4xx": 0.3, "5xx": 0.1}
-                total_requests = 1000
-            else:
-                ratios = {"2xx": 0.0, "3xx": 0.0, "4xx": 0.0, "5xx": 0.0}
-                total_requests = 0
 
-        if config.ENABLE_MOCK_FALLBACK:
-            import random
-            cpu_usage = round(random.uniform(5.0, 35.0), 1)
-            mem_usage = round(random.uniform(256.0, 640.0), 1)
-            mem_limit = 1024.0
-        else:
-            cpu_usage = None
-            mem_usage = None
-            mem_limit = None
-        
-        return {
-            "cpu_usage_pct": cpu_usage,
-            "memory_usage_mb": mem_usage,
-            "memory_limit_mb": mem_limit,
-            "total_requests_parsed": total_requests,
-            "code_ratios": ratios
-        }
 
 
 class CloudflarePagesClient:

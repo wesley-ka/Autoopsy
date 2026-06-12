@@ -58,6 +58,85 @@ def handle_start(message):
     bot.send_message(chat_id, welcome_text, parse_mode="Markdown")
 
 
+def get_status_card(title: str = "Autoopsy Status Overview") -> str:
+    render_status = render_client.get_service_status()
+    cf_deployments = cf_client.get_deployments()
+    
+    # 1. Evaluate Backend Health
+    r_state = render_status.get("status", "unknown").lower()
+    if r_state in ["suspended", "failed"]:
+        backend_health = f"🔴 *Issues Detected* ({r_state})"
+        backend_ok = False
+    elif r_state == "disabled":
+        backend_health = "⚪ *Disabled*"
+        backend_ok = True
+    else:
+        backend_health = "🟢 *Healthy*"
+        backend_ok = True
+        
+    # Format updated_at timestamp (e.g. "2026-06-11T15:26:44.977Z" -> "2026-06-11 15:26")
+    r_updated = render_status.get("updated_at", "")
+    if len(r_updated) >= 16:
+        r_updated_clean = r_updated[:16].replace("T", " ")
+    else:
+        r_updated_clean = r_updated or "N/A"
+        
+    # 2. Evaluate Frontend Health
+    frontend_health = "🟢 *Healthy*"
+    frontend_ok = True
+    cf_details = ""
+    
+    if cf_deployments:
+        latest_cf = cf_deployments[0]
+        cf_state = latest_cf.get("latest_stage", {}).get("status", "unknown").lower()
+        if cf_state in ["failed"]:
+            frontend_health = "🔴 *Deploy Failed*"
+            frontend_ok = False
+        elif cf_state in ["queued", "active", "building"]:
+            frontend_health = "🟡 *Deploying...*"
+            frontend_ok = True
+            
+        env = latest_cf.get("environment", "production")
+        metadata = latest_cf.get("deployment_trigger", {}).get("metadata", {}) or {}
+        commit_hash = latest_cf.get("short_id") or (metadata.get("commit_hash", "")[:8] if metadata else "")
+        branch = metadata.get("branch", "") if metadata else ""
+        
+        cf_details = f"• *Project*: `{latest_cf.get('project_name')}` ({env})\n"
+        if commit_hash and branch:
+            cf_details += f"• *Last Deploy*: `{commit_hash}` (`{branch}`)\n"
+        elif commit_hash:
+            cf_details += f"• *Last Deploy*: `{commit_hash}`\n"
+    else:
+        cf_details = "• *Status*: `No deployments found`\n"
+
+    # 3. Overall Status Summary
+    if backend_ok and frontend_ok:
+        if frontend_health == "🟡 *Deploying...*":
+            overall_status = "🟡 *Status*: Frontend deployment in progress."
+        else:
+            overall_status = "🟢 *Status*: All systems nominal. All good!"
+    elif not backend_ok and not frontend_ok:
+        overall_status = "🔴 *Status*: Action required. Both systems have issues!"
+    elif not backend_ok:
+        overall_status = "🔴 *Status*: Action required. Backend has issues."
+    else:
+        overall_status = "🔴 *Status*: Action required. Frontend deployment failed."
+
+    # 4. Construct Card
+    status_card = f"📊 *{title}*\n"
+    status_card += "========================================\n\n"
+    
+    status_card += f"🖥️ *Backend*: {backend_health}\n"
+    status_card += f"• *Service*: `{render_status.get('name')}`\n"
+    status_card += f"• *Last Deploy*: `{r_updated_clean}`\n\n"
+    
+    status_card += f"⚡ *Frontend*: {frontend_health}\n"
+    status_card += cf_details
+    
+    status_card += "\n========================================\n"
+    status_card += overall_status
+    return status_card
+
 @bot.message_handler(commands=['status'])
 @check_auth
 def handle_status(message):
@@ -67,86 +146,10 @@ def handle_status(message):
     bot.send_chat_action(chat_id, 'typing')
     
     try:
-        render_status = render_client.get_service_status()
-        cf_deployments = cf_client.get_deployments()
-        
-        # 1. Evaluate Backend Health
-        r_state = render_status.get("status", "unknown").lower()
-        if r_state in ["suspended", "failed"]:
-            backend_health = f"🔴 *Issues Detected* ({r_state})"
-            backend_ok = False
-        elif r_state == "disabled":
-            backend_health = "⚪ *Disabled*"
-            backend_ok = True
-        else:
-            backend_health = "🟢 *Healthy*"
-            backend_ok = True
-            
-        # Format updated_at timestamp (e.g. "2026-06-11T15:26:44.977Z" -> "2026-06-11 15:26")
-        r_updated = render_status.get("updated_at", "")
-        if len(r_updated) >= 16:
-            r_updated_clean = r_updated[:16].replace("T", " ")
-        else:
-            r_updated_clean = r_updated or "N/A"
-            
-        # 2. Evaluate Frontend Health
-        frontend_health = "🟢 *Healthy*"
-        frontend_ok = True
-        cf_details = ""
-        
-        if cf_deployments:
-            latest_cf = cf_deployments[0]
-            cf_state = latest_cf.get("latest_stage", {}).get("status", "unknown").lower()
-            if cf_state in ["failed"]:
-                frontend_health = "🔴 *Deploy Failed*"
-                frontend_ok = False
-            elif cf_state in ["queued", "active", "building"]:
-                frontend_health = "🟡 *Deploying...*"
-                frontend_ok = True
-                
-            env = latest_cf.get("environment", "production")
-            metadata = latest_cf.get("deployment_trigger", {}).get("metadata", {}) or {}
-            commit_hash = latest_cf.get("short_id") or (metadata.get("commit_hash", "")[:8] if metadata else "")
-            branch = metadata.get("branch", "") if metadata else ""
-            
-            cf_details = f"• *Project*: `{latest_cf.get('project_name')}` ({env})\n"
-            if commit_hash and branch:
-                cf_details += f"• *Last Deploy*: `{commit_hash}` (`{branch}`)\n"
-            elif commit_hash:
-                cf_details += f"• *Last Deploy*: `{commit_hash}`\n"
-        else:
-            cf_details = "• *Status*: `No deployments found`\n"
-
-        # 3. Overall Status Summary
-        if backend_ok and frontend_ok:
-            if frontend_health == "🟡 *Deploying...*":
-                overall_status = "🟡 *Status*: Frontend deployment in progress."
-            else:
-                overall_status = "🟢 *Status*: All systems nominal. All good!"
-        elif not backend_ok and not frontend_ok:
-            overall_status = "🔴 *Status*: Action required. Both systems have issues!"
-        elif not backend_ok:
-            overall_status = "🔴 *Status*: Action required. Backend has issues."
-        else:
-            overall_status = "🔴 *Status*: Action required. Frontend deployment failed."
-
-        # 4. Construct Card
-        status_card = "📊 *Autoopsy Status Overview*\n"
-        status_card += "========================================\n\n"
-        
-        status_card += f"🖥️ *Backend*: {backend_health}\n"
-        status_card += f"• *Service*: `{render_status.get('name')}`\n"
-        status_card += f"• *Last Deploy*: `{r_updated_clean}`\n\n"
-        
-        status_card += f"⚡ *Frontend*: {frontend_health}\n"
-        status_card += cf_details
-        
-        status_card += "\n========================================\n"
-        status_card += overall_status
-            
-        bot.send_message(chat_id, status_card, parse_mode="Markdown", disable_web_page_preview=True)
+        card = get_status_card(title="Autoopsy Status Overview")
+        bot.send_message(chat_id, card, parse_mode="Markdown", disable_web_page_preview=True)
     except Exception as e:
-        logger.error(f"Error handling /status command: {e}")
+        logger.error(f"Error retrieving status details: {e}")
         bot.send_message(chat_id, f"❌ Error retrieving status details: `{e}`", parse_mode="Markdown")
 
 
@@ -588,7 +591,6 @@ def handle_general_messages(message):
         render_status = render_client.get_service_status()
         cf_deployments = cf_client.get_deployments()
         logs = render_client.get_logs()
-        metrics = render_client.calculate_metrics_from_logs(logs)
         cf_stages = []
         if cf_deployments:
             latest_id = cf_deployments[0].get("id")
@@ -599,7 +601,7 @@ def handle_general_messages(message):
         history_context = chat_histories[chat_id][:-1]
         
         # Call LLM with history context
-        result = agent.respond_to_query(user_text, render_status, cf_deployments, logs, metrics, cloudflare_stages=cf_stages, history=history_context)
+        result = agent.respond_to_query(user_text, render_status, cf_deployments, logs, metrics=None, cloudflare_stages=cf_stages, history=history_context)
         action = result.get("action", "chat")
         component = result.get("component", "none")
         
@@ -635,60 +637,17 @@ def handle_general_messages(message):
 
 def send_daily_report():
     """
-    Cron job task executed daily. Fetches Render logs/status and Cloudflare Page deployments,
-    and publishes the SRE report card.
+    Cron job task executed daily. Fetches Render/Cloudflare status and publishes the status card.
     """
     chat_id = config.get_target_chat_id()
     if not chat_id:
         logger.warning("Daily report scheduler fired, but no cached target chat ID exists.")
         return
         
-    logger.info(f"Triggering daily metrics report for chat ID {chat_id}...")
+    logger.info(f"Triggering daily status report for chat ID {chat_id}...")
     try:
-        # 1. Fetch status details
-        render_status = render_client.get_service_status()
-        cf_deployments = cf_client.get_deployments()
-        
-        # 2. Fetch logs and extract metrics
-        logs = render_client.get_logs()
-        metrics = render_client.calculate_metrics_from_logs(logs)
-        
-        # 3. Format Markdown performance card
-        cf_status = "Unknown"
-        if cf_deployments:
-            cf_status = cf_deployments[0].get("latest_stage", {}).get("status", "Unknown").upper()
-            
-        ratios = metrics.get("code_ratios", {})
-        
-        cpu_val = metrics.get("cpu_usage_pct")
-        cpu_str = f"`{cpu_val}%`" if cpu_val is not None else "`N/A`"
-        
-        mem_val = metrics.get("memory_usage_mb")
-        mem_limit = metrics.get("memory_limit_mb")
-        if mem_val is not None and mem_limit is not None:
-            mem_str = f"`{mem_val} MB / {mem_limit} MB`"
-        else:
-            mem_str = "`N/A`"
-            
-        card = (
-            "📊 *Ops-Agent Daily Performance Report*\n"
-            "========================================\n\n"
-            f"🖥️ *Render Service Backend Status*: `{render_status.get('status')}`\n"
-            f"⚡ *Cloudflare Pages Frontend Status*: `{cf_status}`\n\n"
-            "📈 *Resource Performance Metrics*:\n"
-            f"• *CPU Usage*: {cpu_str} (Container Limit)\n"
-            f"• *Memory Usage*: {mem_str}\n\n"
-            "📨 *HTTP Request & Response Ratios*:\n"
-            f"• *Total Requests*: `{metrics.get('total_requests_parsed')}` (Last logs batch)\n"
-            f"• *2xx (Success)*: `{ratios.get('2xx', 0)}%`\n"
-            f"• *3xx (Redirection)*: `{ratios.get('3xx', 0)}%`\n"
-            f"• *4xx (Client Error)*: `{ratios.get('4xx', 0)}%`\n"
-            f"• *5xx (Server Error)*: `{ratios.get('5xx', 0)}%`\n\n"
-            "========================================\n"
-            "🤖 _All systems nominal. Standby for anomalies._"
-        )
-        
-        bot.send_message(chat_id, card, parse_mode="Markdown")
+        card = get_status_card(title="Autoopsy Daily Status Report")
+        bot.send_message(chat_id, card, parse_mode="Markdown", disable_web_page_preview=True)
         logger.info("Daily metrics report dispatched successfully.")
     except Exception as e:
         logger.error(f"Error generating daily metrics report: {e}")

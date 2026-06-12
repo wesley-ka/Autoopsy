@@ -112,9 +112,9 @@ Please diagnose the issue and answer:
 """
         return self.generate_text(system_prompt, user_prompt, is_coder=False)
 
-    def respond_to_query(self, user_message: str, service_status: dict, cloudflare_deployments: list, logs: str, metrics: dict, cloudflare_stages: list = None, history: list = None) -> dict:
+    def respond_to_query(self, user_message: str, service_status: dict, cloudflare_deployments: list, logs: str, cloudflare_stages: list = None, history: list = None) -> dict:
         """
-        Analyzes the user message against the live system context (status, logs, metrics, build stages) and chat history.
+        Analyzes the user message against the live system context (status, logs, build stages) and chat history.
         Returns a JSON structure dictating if an action should be taken or providing a rich conversational answer.
         """
         system_prompt = (
@@ -157,7 +157,6 @@ Cloudflare Frontend Deployments: {json.dumps(cloudflare_deployments[:3], indent=
 Cloudflare Latest Deployment Stages History: {json.dumps(cloudflare_stages, indent=2) if cloudflare_stages else "None"}
 Render Logs (Last 50 lines):
 {logs}
-Calculated Metrics: {json.dumps(metrics, indent=2)}
 """
         try:
             raw_res = self.generate_text(system_prompt, user_prompt, is_coder=False, require_json=True)
