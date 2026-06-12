@@ -1,0 +1,16 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environments
+venv/
+.env
+
+# Application cache
+chat_id.txt
+.chat_id
+
+# Private documentation
+CONFIG_GUIDE.md
