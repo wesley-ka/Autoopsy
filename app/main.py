@@ -1,5 +1,6 @@
 import uvicorn
-from fastapi import FastAPI, Request, Response, status
+from fastapi import FastAPI, Request, Response, Form, status
+from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
 import threading
 import logging
@@ -47,7 +48,8 @@ async def lifespan(app: FastAPI):
     setup_scheduler()
     
     # 2. Register Telegram Bot commands menu dynamically
-    logger.info("Registering Bot commands menu with Telegram...")
+    # 2. Register Telegram Bot commands menu dynamically
+    logger.info("Registering Bot commands menu and descriptions with Telegram...")
     try:
         bot.set_my_commands([
             telebot.types.BotCommand("status", "Check Render backend & Cloudflare frontend status"),
@@ -58,7 +60,20 @@ async def lifespan(app: FastAPI):
             telebot.types.BotCommand("clear", "Reset conversational history context"),
             telebot.types.BotCommand("help", "Get commands help and setup guide")
         ])
-        logger.info("Bot commands registered successfully.")
+        
+        # Set description with webhook restore link on startup
+        if config.WEBHOOK_URL:
+            restore_link = f"{config.WEBHOOK_URL.rstrip('/')}/setup-webhook"
+            bot.set_my_description(
+                f"Autoopsy SRE Bot.\n\n"
+                f"If I ever become unresponsive, tap the link below to restore my connection:\n"
+                f"{restore_link}"
+            )
+            bot.set_my_short_description(
+                f"SRE bot. Restore link is inside description."
+            )
+            
+        logger.info("Bot commands and descriptions registered successfully.")
     except Exception as e:
         logger.error(f"Failed to register Bot commands: {e}")
         
@@ -114,10 +129,24 @@ app = FastAPI(
 
 @app.get("/", status_code=status.HTTP_200_OK)
 def read_root():
+    webhook_status = "not_configured"
+    expected_url = f"{config.WEBHOOK_URL.rstrip('/')}/webhook" if config.WEBHOOK_URL else None
+    
+    if expected_url:
+        try:
+            info = bot.get_webhook_info()
+            if info.url == expected_url:
+                webhook_status = "connected"
+            else:
+                webhook_status = f"disconnected (expected: {expected_url}, got: {info.url or 'none'}). Visit /setup-webhook to restore."
+        except Exception as e:
+            webhook_status = f"error: {e}"
+            
     return {
         "status": "online",
         "service": "Ops-Agent SRE Bot",
-        "webhook_configured": bool(config.WEBHOOK_URL)
+        "webhook_url_configured": bool(config.WEBHOOK_URL),
+        "webhook_connection": webhook_status
     }
 
 @app.get("/health", status_code=status.HTTP_200_OK)
@@ -129,6 +158,30 @@ def health_check():
         "status": "healthy",
         "scheduler_running": scheduler.running
     }
+
+@app.get("/setup-webhook", response_class=HTMLResponse)
+def setup_webhook_manually():
+    """
+    On-demand endpoint to register or restore the Telegram webhook.
+    """
+    if not config.WEBHOOK_URL:
+        return HTMLResponse(content="<h3>❌ WEBHOOK_URL is not configured in environment</h3>", status_code=500)
+        
+    webhook_path = "/webhook"
+    full_webhook_url = f"{config.WEBHOOK_URL.rstrip('/')}{webhook_path}"
+    try:
+        bot.remove_webhook()
+        bot.set_webhook(url=full_webhook_url)
+        return HTMLResponse(content=f"""
+        <div style="background: #0d1117; color: #56d364; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; flex-direction: column;">
+            <h2>🟢 Webhook Restored Successfully!</h2>
+            <p style="color: #8b949e">Target URL: {full_webhook_url}</p>
+        </div>
+        """)
+    except Exception as e:
+        logger.error(f"Manual webhook registration failed: {e}")
+        return HTMLResponse(content=f"<h3>❌ Failed to restore webhook: {e}</h3>", status_code=500)
+
 
 @app.post("/webhook")
 async def telegram_webhook(request: Request):

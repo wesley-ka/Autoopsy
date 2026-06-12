@@ -147,6 +147,8 @@ python -m app.main
 ```
 *Note: To run in local development polling mode, leave `WEBHOOK_URL` empty in your `.env`.*
 
+*Tip: If your production webhook ever gets cleared (e.g., from accidentally running a local long-polling client against your production token), the bot automatically saves the recovery link in its Telegram profile/bio description on startup. You can simply open the bot's profile page by clicking its name/pic, tap the link, and it will restore its webhook connection instantly. Alternatively, visit `https://<your-render-url>/setup-webhook` in your browser.*
+
 ---
 
 ## 🔌 Target Project Integration (`.agent-ops.yml`)

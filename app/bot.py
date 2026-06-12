@@ -252,7 +252,7 @@ def get_status_card(title: str = "Autoopsy Status Overview") -> tuple[str, bool,
     else:
         r_updated_clean = r_updated or "N/A"
         
-    # Check Backend Reachability
+    # Check Backend Reachability & Webhook Registration
     backend_reachable_msg = ""
     if config.WEBHOOK_URL:
         base_url = config.WEBHOOK_URL.split("/webhook")[0]
@@ -261,6 +261,18 @@ def get_status_card(title: str = "Autoopsy Status Overview") -> tuple[str, bool,
         if not reachable:
             backend_health = "🔴 *Unreachable*"
             backend_ok = False
+            
+        # Check Webhook Connection
+        expected_url = f"{config.WEBHOOK_URL.rstrip('/')}/webhook"
+        try:
+            info = bot.get_webhook_info()
+            if info.url != expected_url:
+                restore_link = f"{config.WEBHOOK_URL.rstrip('/')}/setup-webhook"
+                backend_reachable_msg += f"• *Webhook*: 🔴 Disconnected\n👉 [Restore Webhook Connection]({restore_link})\n"
+            else:
+                backend_reachable_msg += "• *Webhook*: 🟢 Connected\n"
+        except Exception as e:
+            backend_reachable_msg += f"• *Webhook*: ⚠️ Check failed (`{e}`)\n"
 
     # 2. Evaluate Frontend Health
     frontend_health = "🟢 *Healthy*"
