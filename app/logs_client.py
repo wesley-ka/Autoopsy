@@ -58,7 +58,10 @@ class RenderClient:
                         "type": service_data.get("type", "unknown"),
                         "status": service_data.get("suspended", "active"), # suspended/not_suspended
                         "updated_at": service_data.get("updatedAt", ""),
-                        "dashboard_url": service_data.get("dashboardUrl", "")
+                        "dashboard_url": service_data.get("dashboardUrl", ""),
+                        "repo": service_data.get("repo", ""),
+                        "branch": service_data.get("branch", ""),
+                        "auto_deploy": service_data.get("autoDeploy", "")
                     }
         except Exception as e:
             logger.error(f"Error fetching Render service status: {e}")

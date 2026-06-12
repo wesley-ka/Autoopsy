@@ -70,24 +70,79 @@ def handle_status(message):
         render_status = render_client.get_service_status()
         cf_deployments = cf_client.get_deployments()
         
-        status_card = "📊 *Autoopsy Service Status*\n\n"
+        # 1. Evaluate Backend Health
+        r_state = render_status.get("status", "unknown").lower()
+        if r_state in ["suspended", "failed"]:
+            backend_health = f"🔴 *Issues Detected* ({r_state})"
+            backend_ok = False
+        elif r_state == "disabled":
+            backend_health = "⚪ *Disabled*"
+            backend_ok = True
+        else:
+            backend_health = "🟢 *Healthy*"
+            backend_ok = True
+            
+        # Format updated_at timestamp (e.g. "2026-06-11T15:26:44.977Z" -> "2026-06-11 15:26")
+        r_updated = render_status.get("updated_at", "")
+        if len(r_updated) >= 16:
+            r_updated_clean = r_updated[:16].replace("T", " ")
+        else:
+            r_updated_clean = r_updated or "N/A"
+            
+        # 2. Evaluate Frontend Health
+        frontend_health = "🟢 *Healthy*"
+        frontend_ok = True
+        cf_details = ""
         
-        # Render section
-        status_card += "🖥️ *Render Backend Service*\n"
-        status_card += f"• *Name*: `{render_status.get('name')}`\n"
-        status_card += f"• *Status*: `{render_status.get('status')}`\n"
-        status_card += f"• *Dashboard*: [View Service]({render_status.get('dashboard_url')})\n\n"
-        
-        # Cloudflare section
-        status_card += "⚡ *Cloudflare Pages Frontend*\n"
         if cf_deployments:
             latest_cf = cf_deployments[0]
-            status_card += f"• *Project*: `{latest_cf.get('project_name')}`\n"
-            status_card += f"• *Env*: `{latest_cf.get('environment')}`\n"
-            status_card += f"• *Latest Status*: `{latest_cf.get('latest_stage', {}).get('status')}`\n"
-            status_card += f"• *URL*: [Visit Website]({latest_cf.get('url')})\n"
+            cf_state = latest_cf.get("latest_stage", {}).get("status", "unknown").lower()
+            if cf_state in ["failed"]:
+                frontend_health = "🔴 *Deploy Failed*"
+                frontend_ok = False
+            elif cf_state in ["queued", "active", "building"]:
+                frontend_health = "🟡 *Deploying...*"
+                frontend_ok = True
+                
+            env = latest_cf.get("environment", "production")
+            metadata = latest_cf.get("deployment_trigger", {}).get("metadata", {}) or {}
+            commit_hash = latest_cf.get("short_id") or (metadata.get("commit_hash", "")[:8] if metadata else "")
+            branch = metadata.get("branch", "") if metadata else ""
+            
+            cf_details = f"• *Project*: `{latest_cf.get('project_name')}` ({env})\n"
+            if commit_hash and branch:
+                cf_details += f"• *Last Deploy*: `{commit_hash}` (`{branch}`)\n"
+            elif commit_hash:
+                cf_details += f"• *Last Deploy*: `{commit_hash}`\n"
         else:
-            status_card += "• *Status*: `No deployments found`\n"
+            cf_details = "• *Status*: `No deployments found`\n"
+
+        # 3. Overall Status Summary
+        if backend_ok and frontend_ok:
+            if frontend_health == "🟡 *Deploying...*":
+                overall_status = "🟡 *Status*: Frontend deployment in progress."
+            else:
+                overall_status = "🟢 *Status*: All systems nominal. All good!"
+        elif not backend_ok and not frontend_ok:
+            overall_status = "🔴 *Status*: Action required. Both systems have issues!"
+        elif not backend_ok:
+            overall_status = "🔴 *Status*: Action required. Backend has issues."
+        else:
+            overall_status = "🔴 *Status*: Action required. Frontend deployment failed."
+
+        # 4. Construct Card
+        status_card = "📊 *Autoopsy Status Overview*\n"
+        status_card += "========================================\n\n"
+        
+        status_card += f"🖥️ *Backend*: {backend_health}\n"
+        status_card += f"• *Service*: `{render_status.get('name')}`\n"
+        status_card += f"• *Last Deploy*: `{r_updated_clean}`\n\n"
+        
+        status_card += f"⚡ *Frontend*: {frontend_health}\n"
+        status_card += cf_details
+        
+        status_card += "\n========================================\n"
+        status_card += overall_status
             
         bot.send_message(chat_id, status_card, parse_mode="Markdown", disable_web_page_preview=True)
     except Exception as e:
