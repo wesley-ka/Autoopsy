@@ -1,0 +1,20 @@
+# Virtual environment
+venv/
+venv_old/
+
+# Secrets and local configurations
+.env
+chat_id.txt
+.chat_id
+CONFIG_GUIDE.md
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Version control
+.git
+.gitignore
