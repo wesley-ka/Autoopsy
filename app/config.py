@@ -74,6 +74,8 @@ LLM_MODEL_CODER=meta-llama/Meta-Llama-3.1-70B-Instruct
 PORT=8000
 HOST=0.0.0.0
 DAILY_REPORT_TIME=09:00
+# Optional: Comma-separated list of custom domains to check reachability for (e.g. example.com,www.example.com)
+CUSTOM_DOMAINS=
 
 # 7. Coding Engine ("native" or "aider")
 CODING_ENGINE=aider
@@ -207,30 +209,11 @@ HOST = os.getenv("HOST", "0.0.0.0")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 DAILY_REPORT_TIME = os.getenv("DAILY_REPORT_TIME", "09:00")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-CHAT_ID_FILE = "chat_id.txt"
+CUSTOM_DOMAINS_ENV = os.getenv("CUSTOM_DOMAINS", "")
+CUSTOM_DOMAINS = [d.strip() for d in CUSTOM_DOMAINS_ENV.split(",") if d.strip()]
 
 def get_target_chat_id() -> str:
     """
-    Retrieves the saved chat ID if it exists and was cached, otherwise returns TELEGRAM_CHAT_ID from config.
+    Retrieves the configured TELEGRAM_CHAT_ID from environment.
     """
-    if os.path.exists(CHAT_ID_FILE):
-        try:
-            with open(CHAT_ID_FILE, "r") as f:
-                chat_id = f.read().strip()
-                if chat_id:
-                    return chat_id
-        except Exception as e:
-            logger.error(f"Error reading chat_id cache file: {e}")
     return TELEGRAM_CHAT_ID
-
-def save_target_chat_id(chat_id: str):
-    """
-    Caches the chat ID in a local file so the daily reports scheduler can target it.
-    """
-    try:
-        os.makedirs(os.path.dirname(CHAT_ID_FILE) if os.path.dirname(CHAT_ID_FILE) else ".", exist_ok=True)
-        with open(CHAT_ID_FILE, "w") as f:
-            f.write(str(chat_id))
-        logger.info(f"Target chat ID saved: {chat_id}")
-    except Exception as e:
-        logger.error(f"Error saving chat_id cache file: {e}")

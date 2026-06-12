@@ -62,6 +62,20 @@ Instead of deploying code autonomously without oversight, Autoopsy sends a detai
 
 ---
 
+## 📲 SRE ChatOps Command Menu
+
+Autoopsy automatically registers its native command autocomplete menu with Telegram on startup:
+
+*   🔌 `/status` - Check Render backend & Cloudflare frontend status at a glance, with real-time domain reachability and SRE quick-action buttons.
+*   🔍 `/debug` - Fetch raw backend container logs and run an LLM incident diagnostics autopsy.
+*   🛠️ `/fix [component]` - Spin up an isolated sandbox, run build/tests, apply fixes automatically, and open a Pull Request.
+*   📋 `/logs [limit]` - Fetch and display recent raw backend container logs (default: 25 lines).
+*   ⚡ `/frontend` - Fetch and display frontend build stages and default/custom domain reachability.
+*   🧹 `/clear` - Reset conversational chat context history to prevent memory pollution.
+*   ❓ `/help` - Show the SRE bot command guide and configuration details.
+
+---
+
 ## 📂 Project Structure
 
 ```text
@@ -115,6 +129,15 @@ LLM_API_KEY=your_llm_api_key
 LLM_BASE_URL=https://api.deepinfra.com/v1
 LLM_MODEL_DIAGNOSTIC=deepseek-ai/DeepSeek-V4-Flash
 LLM_MODEL_CODER=deepseek-ai/DeepSeek-V4-Pro
+
+# 5. Service & Monitoring Configurations
+PORT=8000
+HOST=0.0.0.0
+DAILY_REPORT_TIME=09:00
+# Optional: Comma-separated list of custom domains to monitor reachability for
+CUSTOM_DOMAINS=example.com,www.example.com
+# Set to true to enable simulation fallback in offline/test environments
+ENABLE_MOCK_FALLBACK=false
 ```
 
 ### 3. Run the Application

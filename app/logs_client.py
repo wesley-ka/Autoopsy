@@ -202,6 +202,32 @@ class CloudflarePagesClient:
             ]
         return []
 
+    def get_project_details(self) -> dict:
+        """
+        Fetches the details of a Cloudflare Pages project, including subdomain and custom domains.
+        """
+        if not self.api_token or not self.account_id or not self.project_name:
+            return {}
+            
+        try:
+            with httpx.Client() as client:
+                url = f"{self.base_url}/accounts/{self.account_id}/pages/projects/{self.project_name}"
+                resp = client.get(url, headers=self.headers, timeout=10.0)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return data.get("result") or {}
+                logger.warning(f"Cloudflare project details API returned status {resp.status_code}")
+        except Exception as e:
+            logger.error(f"Error fetching Cloudflare Page project details: {e}")
+            
+        if config.ENABLE_MOCK_FALLBACK:
+            return {
+                "name": self.project_name,
+                "subdomain": f"{self.project_name}.pages.dev",
+                "domains": [f"www.{self.project_name}.com"]
+            }
+        return {}
+
 
 class GithubClient:
     def __init__(self, repo: str, pat: str):

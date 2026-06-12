@@ -46,7 +46,23 @@ async def lifespan(app: FastAPI):
     # 1. Setup daily metrics report scheduler
     setup_scheduler()
     
-    # 2. Setup Telegram Bot communication mode
+    # 2. Register Telegram Bot commands menu dynamically
+    logger.info("Registering Bot commands menu with Telegram...")
+    try:
+        bot.set_my_commands([
+            telebot.types.BotCommand("status", "Check Render backend & Cloudflare frontend status"),
+            telebot.types.BotCommand("debug", "Fetch live logs and run LLM SRE diagnostics"),
+            telebot.types.BotCommand("fix", "Run self-correcting fix sandbox and create a PR"),
+            telebot.types.BotCommand("logs", "Fetch recent raw backend container logs"),
+            telebot.types.BotCommand("frontend", "Fetch frontend build stages & reachability"),
+            telebot.types.BotCommand("clear", "Reset conversational history context"),
+            telebot.types.BotCommand("help", "Get commands help and setup guide")
+        ])
+        logger.info("Bot commands registered successfully.")
+    except Exception as e:
+        logger.error(f"Failed to register Bot commands: {e}")
+        
+    # 3. Setup Telegram Bot communication mode
     if config.WEBHOOK_URL:
         # Webhook Mode
         webhook_path = "/webhook"

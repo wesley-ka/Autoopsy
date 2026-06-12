@@ -1,6 +1,8 @@
 import telebot
+from datetime import datetime
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import time
+import httpx
 import logging
 import re
 from app import config
@@ -43,7 +45,6 @@ def check_auth(func):
 @check_auth
 def handle_start(message):
     chat_id = message.chat.id
-    config.save_target_chat_id(chat_id)
     
     welcome_text = (
         "🤖 *Welcome to Autoopsy!* Your Autonomous DevSecOps SRE.\n\n"
@@ -57,10 +58,180 @@ def handle_start(message):
     )
     bot.send_message(chat_id, welcome_text, parse_mode="Markdown")
 
+@bot.message_handler(commands=['help'])
+@check_auth
+def handle_help(message):
+    chat_id = message.chat.id
+    
+    help_text = (
+        "🤖 *Autoopsy SRE Bot Command Guide*\n"
+        "========================================\n\n"
+        "🔌 `/status` - Check Render backend & Cloudflare frontend status at a glance.\n"
+        "🔍 `/debug` - Fetch raw backend logs and perform an LLM-powered anomaly diagnostics autopsy.\n"
+        "🛠️ `/fix [component]` - Spin up a local sandbox, pull the target codebase, apply fixes, compile/test, and submit a Pull Request. Specify `backend` or `frontend` (e.g. `/fix backend`). If omitted, Autoopsy auto-diagnoses the failing component.\n"
+        "📋 `/logs [limit]` - Fetch and display recent raw backend container logs (default: 25 lines, e.g. `/logs 50`).\n"
+        "⚡ `/frontend` - Fetch and display frontend build stages & reachability status.\n"
+        "🧹 `/clear` - Reset conversational chat context history to prevent memory pollution.\n"
+        "❓ `/help` - Show this command menu details.\n\n"
+        "💬 *ChatOps Context*:\n"
+        "You can message me in plain English! I will use recent logs and system status context to answer your SRE questions. If you ask me to 'fix the database' or 'diagnose', I will automatically trigger the corresponding SRE sandbox operations."
+    )
+    bot.send_message(chat_id, help_text, parse_mode="Markdown")
 
-def get_status_card(title: str = "Autoopsy Status Overview") -> str:
+
+def get_frontend_build_report() -> str:
+    cf_deployments = cf_client.get_deployments()
+    proj_details = cf_client.get_project_details()
+    
+    subdomain = proj_details.get("subdomain")
+    custom_domains = config.CUSTOM_DOMAINS
+    
+    report = f"⚡ *Frontend Status & History*:\n"
+    
+    # 1. Reachability checks
+    report += "\n🌐 *Domain Reachability Status*:\n"
+    if subdomain:
+        sub_url = f"https://{subdomain}"
+        reachable, status_str = check_domain_reachability(sub_url)
+        emoji = "🟢" if reachable else "🔴"
+        report += f"{emoji} *Default Subdomain* ({sub_url}): `{status_str}`\n"
+        
+    for domain in custom_domains:
+        dom_url = f"https://{domain}"
+        reachable, status_str = check_domain_reachability(dom_url)
+        emoji = "🟢" if reachable else "🔴"
+        report += f"{emoji} *Custom Domain* ({dom_url}): `{status_str}`\n"
+        
+    if not subdomain and not custom_domains:
+        report += "⚠️ _No domains or subdomains found._\n"
+        
+    # 2. Latest deployment info
+    if cf_deployments:
+        latest = cf_deployments[0]
+        dep_id = latest.get("id")
+        short_id = latest.get("short_id", "unknown")
+        env = latest.get("environment", "production")
+        url = latest.get("url", "")
+        
+        stages = cf_client.get_deployment_stages(dep_id)
+        
+        report += f"\n📦 *Latest Deployment Details*:\n"
+        report += f"• *ID*: `{short_id}`\n"
+        report += f"• *Environment*: `{env}`\n"
+        if url:
+            report += f"• *URL*: [View Deployment]({url})\n"
+            
+        if stages:
+            report += "\n*Build Stages History*:\n"
+            for stage in stages:
+                name = stage.get("name", "unknown")
+                status = stage.get("status", "unknown")
+                
+                emoji = "⚪"
+                if status == "success":
+                    emoji = "🟢"
+                elif status == "failed":
+                    emoji = "🔴"
+                elif status in ["active", "running"]:
+                    emoji = "🔄"
+                    
+                dur_str = ""
+                started = stage.get("started_on")
+                ended = stage.get("ended_on")
+                if started and ended:
+                    try:
+                        s_dt = datetime.fromisoformat(started.replace("Z", "+00:00"))
+                        e_dt = datetime.fromisoformat(ended.replace("Z", "+00:00"))
+                        dur = int((e_dt - s_dt).total_seconds())
+                        dur_str = f" ({dur}s)"
+                    except Exception:
+                        pass
+                        
+                report += f"{emoji} *{name}*: `{status}`{dur_str}\n"
+        else:
+            report += "\n⚠️ _No build stages info returned._\n"
+    else:
+        report += "\n⚠️ *No deployments history found.*"
+        
+    return report
+
+def send_backend_logs(chat_id, limit=25):
+    bot.send_chat_action(chat_id, 'typing')
+    try:
+        logs = render_client.get_logs(limit=limit)
+        log_text = f"📄 *Latest Backend Logs (Last {limit} lines)*:\n"
+        max_log_len = 3800
+        if len(logs) > max_log_len:
+            logs = "...\n" + logs[-max_log_len:]
+        log_text += f"```text\n{logs}\n```"
+        
+        try:
+            bot.send_message(chat_id, log_text, parse_mode="Markdown")
+        except Exception:
+            bot.send_message(chat_id, f"📄 Latest Backend Logs:\n\n{logs}")
+    except Exception as e:
+        logger.error(f"Error fetching backend logs: {e}")
+        bot.send_message(chat_id, f"❌ Failed to retrieve backend logs: `{e}`", parse_mode="Markdown")
+
+def send_frontend_logs(chat_id):
+    bot.send_chat_action(chat_id, 'typing')
+    try:
+        report = get_frontend_build_report()
+        bot.send_message(chat_id, report, parse_mode="Markdown", disable_web_page_preview=True)
+    except Exception as e:
+        logger.error(f"Error fetching frontend logs: {e}")
+        bot.send_message(chat_id, f"❌ Failed to retrieve frontend build stages: `{e}`", parse_mode="Markdown")
+
+@bot.message_handler(commands=['logs'])
+@check_auth
+def handle_logs(message):
+    chat_id = message.chat.id
+    args = message.text.strip().split()
+    limit = 25
+    if len(args) > 1:
+        try:
+            limit = min(max(int(args[1]), 5), 100)
+        except ValueError:
+            pass
+    send_backend_logs(chat_id, limit=limit)
+
+@bot.message_handler(commands=['frontend'])
+@check_auth
+def handle_frontend(message):
+    chat_id = message.chat.id
+    send_frontend_logs(chat_id)
+
+
+@bot.message_handler(commands=['clear'])
+@check_auth
+def handle_clear(message):
+    chat_id = message.chat.id
+    chat_histories[chat_id] = []
+    bot.send_message(chat_id, "🧹 *Conversational history context cleared.*", parse_mode="Markdown")
+
+
+def check_domain_reachability(url: str) -> tuple[bool, str]:
+    """
+    Checks if a URL/domain is reachable.
+    Returns (is_reachable, status_code_or_error_msg).
+    """
+    if not url.startswith("http://") and not url.startswith("https://"):
+        url = "https://" + url
+    try:
+        with httpx.Client() as client:
+            resp = client.get(url, timeout=5.0, follow_redirects=True)
+            return (resp.status_code >= 200 and resp.status_code < 400), f"HTTP {resp.status_code}"
+    except Exception as e:
+        err_msg = str(e)
+        if len(err_msg) > 60:
+            err_msg = err_msg[:57] + "..."
+        return False, err_msg
+
+
+def get_status_card(title: str = "Autoopsy Status Overview") -> tuple[str, bool, bool]:
     render_status = render_client.get_service_status()
     cf_deployments = cf_client.get_deployments()
+    proj_details = cf_client.get_project_details()
     
     # 1. Evaluate Backend Health
     r_state = render_status.get("status", "unknown").lower()
@@ -81,6 +252,16 @@ def get_status_card(title: str = "Autoopsy Status Overview") -> str:
     else:
         r_updated_clean = r_updated or "N/A"
         
+    # Check Backend Reachability
+    backend_reachable_msg = ""
+    if config.WEBHOOK_URL:
+        base_url = config.WEBHOOK_URL.split("/webhook")[0]
+        reachable, status_str = check_domain_reachability(base_url)
+        backend_reachable_msg = f"• *Reachability*: {'🟢 Reachable' if reachable else '🔴 Unreachable'} (`{status_str}`)\n"
+        if not reachable:
+            backend_health = "🔴 *Unreachable*"
+            backend_ok = False
+
     # 2. Evaluate Frontend Health
     frontend_health = "🟢 *Healthy*"
     frontend_ok = True
@@ -106,8 +287,32 @@ def get_status_card(title: str = "Autoopsy Status Overview") -> str:
             cf_details += f"• *Last Deploy*: `{commit_hash}` (`{branch}`)\n"
         elif commit_hash:
             cf_details += f"• *Last Deploy*: `{commit_hash}`\n"
+            
+        # Check Frontend Default URL Reachability
+        url = latest_cf.get("url")
+        if url:
+            reachable, status_str = check_domain_reachability(url)
+            if not reachable:
+                frontend_health = "🔴 *Unreachable*"
+                frontend_ok = False
+            cf_details += f"• *URL Reachability*: {'🟢 Reachable' if reachable else '🔴 Unreachable'} (`{status_str}`)\n"
     else:
         cf_details = "• *Status*: `No deployments found`\n"
+
+    # Check Custom Domains Reachability
+    custom_domains = config.CUSTOM_DOMAINS
+    custom_domains_msg = ""
+    for domain in custom_domains:
+        dom_url = f"https://{domain}"
+        reachable, status_str = check_domain_reachability(dom_url)
+        emoji = "🟢" if reachable else "🔴"
+        if not reachable:
+            frontend_health = "🔴 *Domain Issues*"
+            frontend_ok = False
+        custom_domains_msg += f"• *Domain* ({domain}): {emoji} `{status_str}`\n"
+
+    if custom_domains_msg:
+        cf_details += custom_domains_msg
 
     # 3. Overall Status Summary
     if backend_ok and frontend_ok:
@@ -120,7 +325,7 @@ def get_status_card(title: str = "Autoopsy Status Overview") -> str:
     elif not backend_ok:
         overall_status = "🔴 *Status*: Action required. Backend has issues."
     else:
-        overall_status = "🔴 *Status*: Action required. Frontend deployment failed."
+        overall_status = "🔴 *Status*: Action required. Frontend has issues."
 
     # 4. Construct Card
     status_card = f"📊 *{title}*\n"
@@ -128,26 +333,47 @@ def get_status_card(title: str = "Autoopsy Status Overview") -> str:
     
     status_card += f"🖥️ *Backend*: {backend_health}\n"
     status_card += f"• *Service*: `{render_status.get('name')}`\n"
-    status_card += f"• *Last Deploy*: `{r_updated_clean}`\n\n"
+    status_card += f"• *Last Deploy*: `{r_updated_clean}`\n"
+    if backend_reachable_msg:
+        status_card += backend_reachable_msg
+    status_card += "\n"
     
     status_card += f"⚡ *Frontend*: {frontend_health}\n"
     status_card += cf_details
     
     status_card += "\n========================================\n"
     status_card += overall_status
-    return status_card
+    return status_card, backend_ok, frontend_ok
 
 @bot.message_handler(commands=['status'])
 @check_auth
 def handle_status(message):
     chat_id = message.chat.id
-    config.save_target_chat_id(chat_id)
     
     bot.send_chat_action(chat_id, 'typing')
     
     try:
-        card = get_status_card(title="Autoopsy Status Overview")
-        bot.send_message(chat_id, card, parse_mode="Markdown", disable_web_page_preview=True)
+        card, backend_ok, frontend_ok = get_status_card(title="Autoopsy Status Overview")
+        
+        # Build quick actions markup
+        keyboard = InlineKeyboardMarkup()
+        keyboard.row(
+            InlineKeyboardButton("Backend Logs 🖥️", callback_data="show_logs:backend_direct"),
+            InlineKeyboardButton("Frontend Build ⚡", callback_data="show_logs:frontend_direct")
+        )
+        
+        # Add fix/diagnostic buttons if issues are detected
+        if not backend_ok or not frontend_ok:
+            row_buttons = [InlineKeyboardButton("Run Diagnostics 🔍", callback_data="run_debug")]
+            
+            if not backend_ok:
+                row_buttons.append(InlineKeyboardButton("Fix Backend 🖥️", callback_data="run_fix:backend"))
+            if not frontend_ok:
+                row_buttons.append(InlineKeyboardButton("Fix Frontend ⚡", callback_data="run_fix:frontend"))
+                
+            keyboard.row(*row_buttons)
+            
+        bot.send_message(chat_id, card, parse_mode="Markdown", reply_markup=keyboard, disable_web_page_preview=True)
     except Exception as e:
         logger.error(f"Error retrieving status details: {e}")
         bot.send_message(chat_id, f"❌ Error retrieving status details: `{e}`", parse_mode="Markdown")
@@ -157,7 +383,6 @@ def handle_status(message):
 @check_auth
 def handle_debug(message):
     chat_id = message.chat.id
-    config.save_target_chat_id(chat_id)
     
     status_msg = bot.send_message(chat_id, "🔍 Fetching logs and analyzing system status...", parse_mode="Markdown")
     bot.send_chat_action(chat_id, 'typing')
@@ -403,7 +628,6 @@ def execute_fix(chat_id, component, diagnosis_report=None):
 @check_auth
 def handle_fix(message):
     chat_id = message.chat.id
-    config.save_target_chat_id(chat_id)
     
     args = message.text.strip().split()
     component = None
@@ -457,6 +681,34 @@ def handle_fix(message):
         except Exception as e:
             logger.error(f"Error auto-detecting failing component: {e}")
             bot.send_message(chat_id, f"❌ Failed to diagnose system: `{e}`", parse_mode="Markdown")
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("show_logs:"))
+@check_auth
+def handle_show_logs_callback(call):
+    chat_id = call.message.chat.id
+    action = call.data.split(":")[1]
+    
+    if action in ["backend_direct", "backend"]:
+        bot.answer_callback_query(call.id, "Fetching backend logs...")
+        send_backend_logs(chat_id)
+    elif action in ["frontend_direct", "frontend"]:
+        bot.answer_callback_query(call.id, "Fetching frontend build history...")
+        send_frontend_logs(chat_id)
+
+
+@bot.callback_query_handler(func=lambda call: call.data == "run_debug")
+@check_auth
+def handle_run_debug_callback(call):
+    chat_id = call.message.chat.id
+    bot.answer_callback_query(call.id, "Starting SRE diagnostics...")
+    bot.delete_message(chat_id, call.message.message_id)
+    
+    # Trigger /debug logic by creating a fake message wrapper
+    class FakeMessage:
+        def __init__(self, chat_id):
+            self.chat = type('Chat', (object,), {'id': chat_id})
+    handle_debug(FakeMessage(chat_id))
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("run_fix:"))
@@ -575,7 +827,6 @@ def handle_reject_pr_callback(call):
 @check_auth
 def handle_general_messages(message):
     chat_id = message.chat.id
-    config.save_target_chat_id(chat_id)
     
     user_text = message.text
     logger.info(f"Received message: '{user_text}' from chat {chat_id}")
@@ -646,7 +897,7 @@ def send_daily_report():
         
     logger.info(f"Triggering daily status report for chat ID {chat_id}...")
     try:
-        card = get_status_card(title="Autoopsy Daily Status Report")
+        card, _, _ = get_status_card(title="Autoopsy Daily Status Report")
         bot.send_message(chat_id, card, parse_mode="Markdown", disable_web_page_preview=True)
         logger.info("Daily metrics report dispatched successfully.")
     except Exception as e:
