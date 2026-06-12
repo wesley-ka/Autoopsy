@@ -39,9 +39,9 @@ ALLOWED_TELEGRAM_USER_IDS=
 GITHUB_PAT=
 
 # 3. Backend Target (Render + GitHub Backend Repo)
-# To disable backend monitoring, leave RENDER_SERVICE_ID empty.
+# To disable backend monitoring, leave TARGET_RENDER_SERVICE_ID empty.
 RENDER_API_KEY=
-RENDER_SERVICE_ID=
+TARGET_RENDER_SERVICE_ID=
 # Optional: Render Owner/Workspace ID (will be fetched automatically if omitted)
 RENDER_OWNER_ID=
 BACKEND_GITHUB_REPO=owner/backend-repo
@@ -138,23 +138,26 @@ def print_setup_guide_and_exit(validation_errors):
     print(separator)
     sys.exit(1)
 
+# Resolve TARGET_RENDER_SERVICE_ID securely, avoiding conflicts with Render's auto-injected environment variable
+RENDER_SERVICE_ID = os.getenv("TARGET_RENDER_SERVICE_ID")
+
 # Validate config keys on start
 validation_errors = []
 for key in REQUIRED_CORE_ENV_VARS:
     if not os.getenv(key):
         validation_errors.append(f"Missing required core variable: {key}")
 
-has_backend = bool(os.getenv("RENDER_SERVICE_ID"))
+has_backend = bool(RENDER_SERVICE_ID)
 has_frontend = bool(os.getenv("CLOUDFLARE_PROJECT_NAME"))
 
 if not has_backend and not has_frontend:
-    validation_errors.append("At least one target (RENDER_SERVICE_ID for Backend, or CLOUDFLARE_PROJECT_NAME for Frontend) must be configured.")
+    validation_errors.append("At least one target (TARGET_RENDER_SERVICE_ID for Backend, or CLOUDFLARE_PROJECT_NAME for Frontend) must be configured.")
 
 if has_backend:
     if not os.getenv("RENDER_API_KEY"):
-        validation_errors.append("RENDER_API_KEY (required because RENDER_SERVICE_ID is set)")
+        validation_errors.append("RENDER_API_KEY (required because TARGET_RENDER_SERVICE_ID is set)")
     if not os.getenv("BACKEND_GITHUB_REPO"):
-        validation_errors.append("BACKEND_GITHUB_REPO (required because RENDER_SERVICE_ID is set)")
+        validation_errors.append("BACKEND_GITHUB_REPO (required because TARGET_RENDER_SERVICE_ID is set)")
 
 if has_frontend:
     if not os.getenv("CLOUDFLARE_API_TOKEN"):
@@ -173,7 +176,7 @@ GITHUB_PAT = os.getenv("GITHUB_PAT")
 
 # Backend target configs
 RENDER_API_KEY = os.getenv("RENDER_API_KEY")
-RENDER_SERVICE_ID = os.getenv("RENDER_SERVICE_ID")
+# RENDER_SERVICE_ID is already defined above
 RENDER_OWNER_ID = os.getenv("RENDER_OWNER_ID")
 BACKEND_GITHUB_REPO = os.getenv("BACKEND_GITHUB_REPO")
 BACKEND_GITHUB_BRANCH = os.getenv("BACKEND_GITHUB_BRANCH", "main")

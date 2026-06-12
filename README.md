@@ -104,7 +104,7 @@ GITHUB_PAT=your_github_personal_access_token
 
 # 3. Targets
 RENDER_API_KEY=your_render_api_key
-RENDER_SERVICE_ID=your_render_service_id
+TARGET_RENDER_SERVICE_ID=your_render_service_id
 CLOUDFLARE_API_TOKEN=your_cloudflare_api_token
 CLOUDFLARE_ACCOUNT_ID=your_cloudflare_account_id
 CLOUDFLARE_PROJECT_NAME=your_cloudflare_pages_project
